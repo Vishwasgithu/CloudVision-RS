@@ -1,0 +1,35 @@
+segmentation:
+  # Model
+  encoder_name: "resnet34"
+  encoder_weights: "imagenet"
+  in_channels: 3
+  num_classes: 1
+
+  # Training
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  max_epochs: 60
+  early_stopping_patience: 18
+
+  # Loss weights
+  bce_weight: 0.5
+  dice_weight: 0.5
+
+  # Scheduler
+  scheduler: "cosine"   # cosine annealing
+
+  # Paths — update for Colab
+  patches_dir: "data/processed/patches"
+  checkpoint_dir: "outputs/checkpoints/segmentation"
+  log_dir: "outputs/logs"
+
+  # Colab Google Drive path (update with your Drive path)
+  drive_checkpoint_dir: "/content/drive/MyDrive/CloudVision-RS/checkpoints/seg"
+
+  # wandb
+  wandb_project: "cloudvision-rs"
+  wandb_run_name: "seg-resnet34-attn-unet"
+
+  # Data (inherited from data_config)
+  seg_batch_size: 16
+  num_workers: 4

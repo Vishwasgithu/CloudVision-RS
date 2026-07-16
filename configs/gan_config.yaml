@@ -1,0 +1,33 @@
+gan:
+  # Generator input/output
+  in_channels: 5        # RGB(3) + mask(1) + edge_map(1)
+  out_channels: 3       # RGB cloud-free output
+  features_g: 64        # base feature channels in generator
+
+  # Discriminator
+  in_channels_d: 6      # input image(3) + output image(3)
+  features_d: 64        # base feature channels in discriminator
+
+  # Training
+  learning_rate_g: 0.0002
+  learning_rate_d: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  max_epochs: 100
+  batch_size: 2         # 4.3GB VRAM — GAN has 2 models simultaneously
+  num_workers: 0        # Windows requirement
+  early_stopping_patience: 25
+  save_every_epochs: 5  # save checkpoint every 5 epochs
+
+  # Loss weights — what each loss term contributes
+  lambda_l1: 100.0       # pixel reconstruction — highest weight, anchors output
+  lambda_vari: 0.5      # vegetation index preservation — scientific contribution
+  lambda_spectral: 1.0   # spectral ratio consistency
+  lambda_edge: 5.0      # cloud boundary coherence — removes seam artifacts
+  lambda_perceptual: 5.0 # VGG texture matching
+
+  # Paths
+  patches_dir: "data/processed/patches"
+  seg_checkpoint: "outputs/checkpoints/segmentation/best_iou0.7727_ep22.pt"
+  checkpoint_dir: "outputs/checkpoints/gan"
+  results_dir: "outputs/results/gan"

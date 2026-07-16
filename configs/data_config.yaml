@@ -1,0 +1,44 @@
+data:
+  # Your actual paths — adjust if your project root is different
+  rice2_path: "datasets/RICE2/RICE2"
+  processed_path: "data/processed"
+  
+  # Folder names matching your actual RICE2 structure
+  cloudy_folder: "cloud"
+  cloudfree_folder: "label"
+  mask_folder: "mask"
+  
+  # Split ratios
+  split_ratios:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  
+  # Fixed seed — never change this after first run
+  random_seed: 42
+  
+  # Patch settings
+  patch_size: 256
+  overlap: 0.5
+  min_cloud_coverage: 0.05
+  max_cloud_coverage: 0.95
+  
+  # Augmentation — applied to train split only
+  augmentation:
+    horizontal_flip: true
+    vertical_flip: true
+    random_rotate_90: true
+    brightness_limit: 0.35
+    contrast_limit: 0.35
+    random_gamma: true
+    hue_saturation: true
+    elastic_transform: true
+    grid_distortion: true
+  
+  # DataLoader
+  num_workers: 2        # 2 for local RTX 3050, 4 for Colab
+  pin_memory: true
+  
+  # Batch sizes
+  seg_batch_size: 8     # segmentation model
+  gan_batch_size: 4     # GAN (heavier model, smaller batch)

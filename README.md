@@ -203,15 +203,30 @@ The project uses standard image restoration and remote sensing evaluation metric
 ```text
 CloudVision-RS
 
-├── datasets/
-├── models/
-├── notebooks/
-├── outputs/
-├── results/
-├── src/
 ├── README.md
+├── LICENSE
 ├── requirements.txt
-└── .gitignore
+├── .gitignore
+│
+├── configs/          # model & data hyperparameters (gan_config.yaml, ...)
+├── src/              # source code (models, losses, data, training)
+├── scripts/          # utility scripts (dataset build, plotting)
+├── notebooks/        # learning / exploration notebooks
+├── docs/             # reports & documentation (Phase3_Report.md, ...)
+│
+├── assets/           # committed images used in README/docs
+│   ├── architecture.png
+│   ├── phase2_results.png
+│   ├── phase3_results.png
+│   └── training_curves.png
+│
+├── outputs/          # runtime-generated, git-ignored
+│   ├── checkpoints/
+│   ├── logs/
+│   └── results/
+│
+├── datasets/         # raw RICE data, git-ignored
+└── tests/
 ```
 
 ---

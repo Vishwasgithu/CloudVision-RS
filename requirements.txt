@@ -1,0 +1,13 @@
+# CloudVision-RS — core dependencies
+# Pin major versions; adjust to your CUDA build of torch if needed.
+torch>=2.0
+torchvision>=0.15
+numpy<2
+opencv-python
+albumentations
+matplotlib
+pyyaml
+pandas
+scipy
+scikit-image
+jupyter
