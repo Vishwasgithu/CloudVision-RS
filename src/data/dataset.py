@@ -23,13 +23,12 @@ import cv2
 import json
 import numpy as np
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict
 import yaml
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+from src.data.augmentation import build_augmentation, get_gan_transforms
 
 
 # Repo root = parent of src/ (this file is src/data/dataset.py)
@@ -47,130 +46,6 @@ def _resolve_config_path(config_path: str) -> str:
 
 
 # ─────────────────────────────────────────────
-# TRANSFORM FACTORIES
-# ─────────────────────────────────────────────
-
-def segmentation_transforms(split: str, aug_cfg: Dict) -> A.Compose:
-    """
-    Transforms for segmentation dataset.
-    
-    Output image range: [0, 1]  (divided by 255, no mean/std shift)
-    Output mask range:  {0, 1}  (binarised before this, ToTensorV2 preserves)
-    
-    Augmentations applied ONLY to 'train' split.
-    Val and test get normalisation only — no random ops.
-    This is important: augmenting validation adds noise to your metrics.
-    """
-    spatial_augs = []
-    if split == 'train':
-        if aug_cfg.get('horizontal_flip'):
-            spatial_augs.append(A.HorizontalFlip(p=0.5))
-        if aug_cfg.get('vertical_flip'):
-            spatial_augs.append(A.VerticalFlip(p=0.5))
-        if aug_cfg.get('random_rotate_90'):
-            spatial_augs.append(A.RandomRotate90(p=0.5))
-        spatial_augs.append(
-            A.RandomBrightnessContrast(
-                brightness_limit=aug_cfg.get('brightness_limit', 0.2),
-                contrast_limit=aug_cfg.get('contrast_limit', 0.2),
-                p=0.5
-            )
-        )
-        if aug_cfg.get('random_gamma'):
-            spatial_augs.append(A.RandomGamma(p=0.5))
-        if aug_cfg.get('hue_saturation'):
-            spatial_augs.append(
-                A.HueSaturationValue(
-                    hue_shift_limit=20,
-                    sat_shift_limit=30,
-                    val_shift_limit=20,
-                    p=0.5
-                )
-            )
-        if aug_cfg.get('elastic_transform'):
-            spatial_augs.append(A.ElasticTransform(p=0.3))
-        if aug_cfg.get('grid_distortion'):
-            spatial_augs.append(A.GridDistortion(p=0.3))
-
-    return A.Compose(
-        spatial_augs + [
-            # Divide by 255 → [0, 1]. No mean/std normalisation.
-            A.Normalize(
-                mean=(0.0, 0.0, 0.0),
-                std=(1.0, 1.0, 1.0),
-                max_pixel_value=255.0
-            ),
-            ToTensorV2()
-        ],
-        additional_targets={'mask': 'mask'}
-    )
-
-
-def gan_transforms(split: str, aug_cfg: Dict) -> A.Compose:
-    """
-    Transforms for GAN dataset.
-    
-    Output cloudy range:    [-1, 1]
-    Output cloudfree range: [-1, 1]   ← target for generator, must match tanh
-    Output mask range:      {0, 1}    ← used as conditioning input, not target
-    
-    How [-1,1] normalisation works:
-    A.Normalize with mean=0.5, std=0.5 on [0,1] float:
-    (x - 0.5) / 0.5  =  2x - 1
-    At x=0: (0-0.5)/0.5 = -1 ✓
-    At x=1: (1-0.5)/0.5 = +1 ✓
-    But albumentations applies to uint8, so max_pixel_value=255.0 first.
-    """
-    spatial_augs = []
-    if split == 'train':
-        if aug_cfg.get('horizontal_flip'):
-            spatial_augs.append(A.HorizontalFlip(p=0.5))
-        if aug_cfg.get('vertical_flip'):
-            spatial_augs.append(A.VerticalFlip(p=0.5))
-        if aug_cfg.get('random_rotate_90'):
-            spatial_augs.append(A.RandomRotate90(p=0.5))
-        spatial_augs.append(
-            A.RandomBrightnessContrast(
-                brightness_limit=aug_cfg.get('brightness_limit', 0.2),
-                contrast_limit=aug_cfg.get('contrast_limit', 0.2),
-                p=0.5
-            )
-        )
-        if aug_cfg.get('random_gamma'):
-            spatial_augs.append(A.RandomGamma(p=0.5))
-        if aug_cfg.get('hue_saturation'):
-            spatial_augs.append(
-                A.HueSaturationValue(
-                    hue_shift_limit=20,
-                    sat_shift_limit=30,
-                    val_shift_limit=20,
-                    p=0.5
-                )
-            )
-        if aug_cfg.get('elastic_transform'):
-            spatial_augs.append(A.ElasticTransform(p=0.3))
-        if aug_cfg.get('grid_distortion'):
-            spatial_augs.append(A.GridDistortion(p=0.3))
-
-    return A.Compose(
-        spatial_augs + [
-            A.Normalize(
-                mean=(0.5, 0.5, 0.5),
-                std=(0.5, 0.5, 0.5),
-                max_pixel_value=255.0
-            ),
-            ToTensorV2()
-        ],
-        # 'label' gets SAME image transform (normalised to [-1,1])
-        # 'mask'  gets ONLY spatial transforms, NOT normalisation
-        additional_targets={
-            'label': 'image',
-            'mask':  'mask'
-        }
-    )
-
-
-# ─────────────────────────────────────────────
 # DATASET CLASSES
 # ─────────────────────────────────────────────
 
@@ -180,7 +55,7 @@ class CloudSegmentationDataset(Dataset):
     
     __getitem__ returns:
     {
-      'image': FloatTensor [3, 256, 256]  range [0, 1]
+      'image': FloatTensor [3, 256, 256]  ImageNet-normalized
       'mask':  FloatTensor [1, 256, 256]  values {0.0, 1.0}
       'patch_id': str
       'cloud_coverage': float
@@ -197,7 +72,7 @@ class CloudSegmentationDataset(Dataset):
             cfg = yaml.safe_load(f)['data']
 
         self.split_dir = Path(patches_dir) / split
-        self.transform = segmentation_transforms(split, cfg.get('augmentation', {}))
+        self.transform = build_augmentation(split, cfg.get('augmentation', {}))
 
         with open(self.split_dir / 'patch_manifest.json') as f:
             self.manifest = json.load(f)
@@ -226,7 +101,7 @@ class CloudSegmentationDataset(Dataset):
         mask_tensor = out['mask'].unsqueeze(0).float()
 
         return {
-            'image':          out['image'],   # [3, H, W] float [0,1]
+            'image':          out['image'],   # [3, H, W] float32 ImageNet-normalized
             'mask':           mask_tensor,    # [1, H, W] float {0,1}
             'patch_id':       pid,
             'cloud_coverage': self.manifest[pid]['cloud_coverage']
@@ -239,8 +114,8 @@ class CloudRemovalDataset(Dataset):
     
     __getitem__ returns:
     {
-      'cloudy':    FloatTensor [3, 256, 256]  range [-1, 1]
-      'cloudfree': FloatTensor [3, 256, 256]  range [-1, 1]
+      'cloudy':    FloatTensor [3, 256, 256]  ImageNet-normalized
+      'cloudfree': FloatTensor [3, 256, 256]  ImageNet-normalized
       'mask':      FloatTensor [1, 256, 256]  values {0.0, 1.0}
       'edge_map':  FloatTensor [1, 256, 256]  range [0, 1]
       'patch_id':  str
@@ -269,7 +144,7 @@ class CloudRemovalDataset(Dataset):
             cfg = yaml.safe_load(f)['data']
 
         self.split_dir = Path(patches_dir) / split
-        self.transform = gan_transforms(split, cfg.get('augmentation', {}))
+        self.transform = get_gan_transforms(split, cfg.get('augmentation', {}))
 
         with open(self.split_dir / 'patch_manifest.json') as f:
             self.manifest = json.load(f)
@@ -339,10 +214,10 @@ class CloudRemovalDataset(Dataset):
         mask_tensor = out['mask'].unsqueeze(0).float()          # [1, H, W]
 
         return {
-            'cloudy':         out['image'],   # [3, H, W] [-1, 1]
-            'cloudfree':      out['label'],   # [3, H, W] [-1, 1]
-            'mask':           mask_tensor,    # [1, H, W] {0, 1}
-            'edge_map':       edge_tensor,    # [1, H, W] [0, 1]
+            'cloudy':         out['image'],   # [3, H, W] float32 ImageNet-normalized
+            'cloudfree':      out['label'],   # [3, H, W] float32 ImageNet-normalized
+            'mask':           mask_tensor,    # [1, H, W] float {0, 1}
+            'edge_map':       edge_tensor,    # [1, H, W] float [0, 1]
             'patch_id':       pid,
             'cloud_coverage': self.manifest[pid]['cloud_coverage']
         }

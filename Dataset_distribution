@@ -1,0 +1,32 @@
+import cv2
+import glob
+import numpy as np
+
+paths = glob.glob("data/processed/patches/test/label/*.png")
+
+brightness = []
+
+for p in paths:
+
+    img = cv2.imread(p)
+
+    if img is None:
+        continue
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    brightness.append(gray.mean())
+
+brightness = np.array(brightness)
+
+print(f"Minimum Brightness : {brightness.min():.2f}")
+print(f"Maximum Brightness : {brightness.max():.2f}")
+print(f"Average Brightness : {brightness.mean():.2f}")
+
+dark = np.sum(brightness < 60)
+medium = np.sum((brightness >= 60) & (brightness < 140))
+bright = np.sum(brightness >= 140)
+
+print(f"\nDark Images   : {dark}")
+print(f"Medium Images : {medium}")
+print(f"Bright Images : {bright}")

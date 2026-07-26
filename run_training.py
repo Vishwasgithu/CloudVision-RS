@@ -23,7 +23,7 @@ def compute_iou(logits, masks):
 
 # 💡 FIX 2: The Critical Windows Multiprocessing Shield
 if __name__ == "__main__":
-    DEVICE = torch.device("cuda")
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     CKPT_DIR = "outputs/checkpoints/segmentation"
     os.makedirs(CKPT_DIR, exist_ok=True)
 
@@ -35,8 +35,8 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)["segmentation"]
 
     config["patches_dir"] = "data/processed/patches"
-    config["seg_batch_size"] = 4  # 4GB VRAM limit for RTX 3050
-    config["num_workers"] = 2  # Now safe to use background workers!
+    config["seg_batch_size"] = 2 if not torch.cuda.is_available() else 4
+    config["num_workers"] = 0 if not torch.cuda.is_available() else 2
 
     loaders = create_dataloaders(
         patches_dir=config["patches_dir"],
@@ -44,7 +44,10 @@ if __name__ == "__main__":
         config_path="configs/data_config.yaml",
     )
 
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        print("CPU mode — training will be slower")
     print(f"Train batches: {len(loaders['train'])}")
     print(f"Val batches:   {len(loaders['val'])}")
 

@@ -24,16 +24,19 @@ data:
   max_cloud_coverage: 0.95
   
   # Augmentation — applied to train split only
+  # All transforms are radiometrically and geometrically valid for
+  # nadir-viewing optical satellite imagery.
   augmentation:
     horizontal_flip: true
     vertical_flip: true
     random_rotate_90: true
-    brightness_limit: 0.35
-    contrast_limit: 0.35
+    random_brightness_contrast: true
+    brightness_limit: 0.15
+    contrast_limit: 0.15
     random_gamma: true
-    hue_saturation: true
-    elastic_transform: true
-    grid_distortion: true
+    gaussian_noise: true
+    random_shadow: false
+    solarize: false
   
   # DataLoader
   num_workers: 2        # 2 for local RTX 3050, 4 for Colab
