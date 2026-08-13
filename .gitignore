@@ -14,3 +14,11 @@ __pycache__/
 
 # ===== Kilo extension internals =====
 .kilo/
+"notebooks/01_pytorch_fundamentals" 
+"notebooks/pytorch_basics.ipynb" 
+'notebooks/NumPy_ Arrays.ipynb' 
+"notebooks/Tensor_Operations.ipynb" 
+"notebooks/New_pytorch.ipynb" 
+"notebooks/Computer_v.ipynb" 
+"notebooks/Challenges.ipynb" 
+"notebooks/Important_points_learnings.ipynb" 
