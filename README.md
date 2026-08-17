@@ -762,5 +762,4 @@ Your support helps improve the project and encourages continued research and dev
 ### Generative AI-Driven Cloud Analysis, Segmentation & Cloud Removal for Optical Remote Sensing Imagery
 
 **Developed with ❤️ for AI, Earth Observation, and Remote Sensing Research**
-
 </div>

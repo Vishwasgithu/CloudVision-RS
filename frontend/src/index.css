@@ -272,11 +272,17 @@ select:focus {
 /* Grid layout for Outputs */
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1200px) {
+  .result-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
   .result-grid {
     grid-template-columns: 1fr;
   }
@@ -298,13 +304,18 @@ select:focus {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  transition: transform 0.3s ease;
+}
+
+.image-panel:hover img {
+  transform: scale(1.02);
 }
 
 .panel-label {
   position: absolute;
   top: 12px;
   left: 12px;
-  background: rgba(9, 9, 11, 0.75);
+  background: rgba(9, 9, 11, 0.85);
   backdrop-filter: blur(4px);
   padding: 4px 10px;
   border-radius: 6px;
@@ -312,6 +323,7 @@ select:focus {
   font-weight: 600;
   color: var(--text-primary);
   border: 1px solid var(--border-color);
+  z-index: 5;
 }
 
 /* Swipe Split Visualizer */
@@ -368,18 +380,24 @@ select:focus {
 
 /* Metrics Dashboard */
 .metrics-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 2rem;
   margin-top: 1rem;
 }
 
 .metric-card {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.01);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 1rem;
+  border-radius: 12px;
+  padding: 1.5rem;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 160px;
+  flex: 1;
 }
 
 .metric-val {
@@ -394,6 +412,50 @@ select:focus {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  margin-top: 0.75rem;
+}
+
+/* Custom Gauges */
+.gauge-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.gauge-container {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gauge-svg {
+  transform: rotate(-90deg);
+  width: 100px;
+  height: 100px;
+}
+
+.gauge-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.04);
+  stroke-width: 8;
+}
+
+.gauge-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.gauge-text {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 /* Tabs */

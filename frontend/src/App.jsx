@@ -1,6 +1,35 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 const API_URL = 'http://localhost:8000';
+
+function Gauge({ value, label, max = 1, suffix = "", colorClass = "var(--accent-color)" }) {
+  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+  const strokeDashoffset = 283 - (283 * pct) / 100;
+
+  return (
+    <div className="gauge-wrapper">
+      <div className="gauge-container">
+        <svg className="gauge-svg" width="100" height="100" viewBox="0 0 100 100">
+          <circle className="gauge-track" cx="50" cy="50" r="45" />
+          <circle
+            className="gauge-fill"
+            cx="50"
+            cy="50"
+            r="45"
+            stroke={colorClass}
+            strokeDasharray="283"
+            strokeDashoffset={strokeDashoffset}
+          />
+        </svg>
+        <div className="gauge-text">
+          {value.toFixed(suffix ? 1 : 4)}
+          {suffix}
+        </div>
+      </div>
+      <div className="gauge-label">{label}</div>
+    </div>
+  );
+}
 
 function App() {
   const [samples, setSamples] = useState([]);
@@ -21,6 +50,7 @@ function App() {
   const [rectWarning, setRectWarning] = useState('');
   const [sceneResults, setSceneResults] = useState(null);
   const [sceneActiveTab, setSceneActiveTab] = useState('grid');
+  const [activeBins, setActiveBins] = useState(['light', 'medium', 'heavy']);
 
   const fileInputRef = useRef(null);
   const sceneFileInputRef = useRef(null);
@@ -168,7 +198,8 @@ function App() {
     isDragging.current = false;
   };
 
-  const fullRect = rect && sceneData ? (() => {
+  const fullRect = useMemo(() => {
+    if (!rect || !sceneData) return null;
     const scaleX = sceneData.width / sceneData.preview_width;
     const scaleY = sceneData.height / sceneData.preview_height;
     const fullW = Math.round(rect.w * scaleX);
@@ -180,10 +211,14 @@ function App() {
       warning = `Selection too large, will be cropped to ${sceneData.max_aoi_size}px`;
     }
     return { fullX, fullY, fullW: Math.min(fullW, sceneData.max_aoi_size), fullH: Math.min(fullH, sceneData.max_aoi_size), warning };
-  })() : null;
+  }, [rect, sceneData]);
 
   useEffect(() => {
-    if (fullRect) setRectWarning(fullRect.warning);
+    if (fullRect) {
+      setRectWarning(fullRect.warning);
+    } else {
+      setRectWarning('');
+    }
   }, [fullRect]);
 
   useEffect(() => {
@@ -226,60 +261,91 @@ function App() {
     }
   };
 
+  const resetWorkspace = () => {
+    setResults(null);
+    setSelectedSampleId(samples.length > 0 ? samples[0].id : '');
+    setFile(null);
+    setSceneFile(null);
+    setSceneData(null);
+    setSceneResults(null);
+    setRect(null);
+    setRectWarning('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (sceneFileInputRef.current) sceneFileInputRef.current.value = '';
+  };
+
   const renderMetrics = (res) => {
-    if (res.metrics !== null && res.metrics !== undefined) {
+    const hasReconstructionMetrics = res.metrics !== null && res.metrics !== undefined;
+    const hasDetectionMetrics = res.mask_accuracy !== null && res.mask_accuracy !== undefined;
+
+    if (!hasReconstructionMetrics && !hasDetectionMetrics) {
+      const cloudColor = res.cloud_coverage > 50 ? 'var(--error-color)' : res.cloud_coverage > 20 ? 'var(--warning-color)' : 'var(--success-color)';
       return (
         <div className="metrics-row">
           <div className="metric-card">
-            <div className="metric-val" style={{ color: 'var(--accent-color)' }}>
-              {res.metrics.ssim.toFixed(4)}
-            </div>
-            <div className="metric-name">Preserved SSIM</div>
+            <Gauge value={res.cloud_coverage} label="Cloud Coverage" max={100} suffix="%" colorClass={cloudColor} />
           </div>
-          <div className="metric-card">
-            <div className="metric-val" style={{ color: 'var(--success-color)' }}>
-              {res.metrics.psnr_db.toFixed(2)} dB
-            </div>
-            <div className="metric-name">Peak PSNR</div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-val" style={{ color: 'var(--warning-color)' }}>
-              {res.metrics.vari_rmse.toFixed(4)}
-            </div>
-            <div className="metric-name">VARI RMSE</div>
-          </div>
+          {res.ndvi_before && (
+            <>
+              <div className="metric-card">
+                <Gauge value={res.ndvi_before.ndvi_mean} label="NDVI Mean" max={1} colorClass="var(--success-color)" />
+              </div>
+              <div className="metric-card">
+                <Gauge value={res.ndvi_before.ndvi_std} label="NDVI Std" max={0.5} colorClass="var(--accent-color)" />
+              </div>
+            </>
+          )}
         </div>
       );
     }
+
     return (
-      <div className="metrics-row">
-        <div className="metric-card">
-          <div className="metric-val" style={{ color: 'var(--warning-color)' }}>
-            {res.cloud_coverage.toFixed(2)}%
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        {hasDetectionMetrics && (
+          <div>
+            <h4 style={{ margin: '0 0 0.75rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Detection Accuracy</h4>
+            <div className="metrics-row">
+              <div className="metric-card">
+                <Gauge 
+                  value={res.mask_accuracy.iou} 
+                  label="Mask IoU" 
+                  max={1} 
+                  colorClass={res.mask_accuracy.iou > 0.7 ? 'var(--success-color)' : res.mask_accuracy.iou > 0.5 ? 'var(--warning-color)' : 'var(--error-color)'} 
+                />
+              </div>
+              <div className="metric-card">
+                <Gauge 
+                  value={res.mask_accuracy.dice} 
+                  label="Mask Dice" 
+                  max={1} 
+                  colorClass={res.mask_accuracy.dice > 0.7 ? 'var(--success-color)' : res.mask_accuracy.dice > 0.5 ? 'var(--warning-color)' : 'var(--error-color)'} 
+                />
+              </div>
+            </div>
           </div>
-          <div className="metric-name">Cloud Coverage</div>
-        </div>
-        {res.ndvi_before && (
-          <>
-            <div className="metric-card">
-              <div className="metric-val" style={{ color: 'var(--success-color)' }}>
-                {res.ndvi_before.ndvi_mean.toFixed(4)}
-              </div>
-              <div className="metric-name">NDVI Mean</div>
-            </div>
-            <div className="metric-card">
-              <div className="metric-val" style={{ color: 'var(--accent-color)' }}>
-                {res.ndvi_before.ndvi_std.toFixed(4)}
-              </div>
-              <div className="metric-name">NDVI Std</div>
-            </div>
-          </>
         )}
-        <div className="metric-card" style={{ gridColumn: '1 / -1' }}>
-          <div className="metric-name" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            {res.note || 'No ground truth available for this image — showing detection and uncertainty results only'}
-          </div>
-        </div>
+
+        {hasReconstructionMetrics && (() => {
+          const ssimColor = res.metrics.ssim > 0.75 ? 'var(--success-color)' : res.metrics.ssim > 0.65 ? 'var(--warning-color)' : 'var(--error-color)';
+          const psnrColor = res.metrics.psnr_db > 24 ? 'var(--success-color)' : res.metrics.psnr_db > 20 ? 'var(--warning-color)' : 'var(--error-color)';
+          const variColor = res.metrics.vari_rmse < 0.15 ? 'var(--success-color)' : res.metrics.vari_rmse < 0.25 ? 'var(--warning-color)' : 'var(--error-color)';
+          return (
+            <div>
+              <h4 style={{ margin: '0 0 0.75rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Reconstruction Accuracy</h4>
+              <div className="metrics-row">
+                <div className="metric-card">
+                  <Gauge value={res.metrics.ssim} label="Preserved SSIM" max={1} colorClass={ssimColor} />
+                </div>
+                <div className="metric-card">
+                  <Gauge value={res.metrics.psnr_db} label="Peak PSNR" max={35} suffix=" dB" colorClass={psnrColor} />
+                </div>
+                <div className="metric-card">
+                  <Gauge value={res.metrics.vari_rmse} label="VARI RMSE" max={0.3} colorClass={variColor} />
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -287,14 +353,17 @@ function App() {
   const renderModelBanner = () => {
     if (!modelInfo) return null;
     const segLabel = modelInfo.segmentation_label || '';
-    const genLabel = modelInfo.generator_label || '';
+    const genRice2Label = modelInfo.generator_rice2_label || '';
+    const genLiss4Label = modelInfo.generator_liss4_label || '';
     const isSegBad = /RICE2|baseline/i.test(segLabel);
-    const isGenBad = /RICE2|baseline/i.test(genLabel);
+    const isGenLiss4Bad = /RICE2|baseline/i.test(genLiss4Label);
     return (
       <div style={{ padding: '0.5rem 1rem', background: 'var(--surface-color)', borderBottom: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
         Segmentation: <span style={{ color: isSegBad ? '#f59e0b' : 'var(--text-primary)', fontWeight: isSegBad ? 'bold' : 'normal' }}>{segLabel}</span>
         &nbsp;·&nbsp;
-        Generator: <span style={{ color: isGenBad ? '#f59e0b' : 'var(--text-primary)', fontWeight: isGenBad ? 'bold' : 'normal' }}>{genLabel}</span>
+        Sample-mode Generator: <span style={{ color: 'var(--text-primary)' }}>{genRice2Label}</span>
+        &nbsp;·&nbsp;
+        Real-scene Generator: <span style={{ color: isGenLiss4Bad ? '#f59e0b' : 'var(--text-primary)', fontWeight: isGenLiss4Bad ? 'bold' : 'normal' }}>{genLiss4Label}</span>
       </div>
     );
   };
@@ -312,8 +381,37 @@ function App() {
         <div className="sidebar-content">
           <div>
             <h3 className="card-title">Test Samples</h3>
+            <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <button 
+                className={`tab-btn ${activeBins.includes('light') ? 'active' : ''}`}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                onClick={() => {
+                  setActiveBins(prev => prev.includes('light') ? prev.filter(b => b !== 'light') : [...prev, 'light'])
+                }}
+              >
+                Light Cloud
+              </button>
+              <button 
+                className={`tab-btn ${activeBins.includes('medium') ? 'active' : ''}`}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                onClick={() => {
+                  setActiveBins(prev => prev.includes('medium') ? prev.filter(b => b !== 'medium') : [...prev, 'medium'])
+                }}
+              >
+                Medium Cloud
+              </button>
+              <button 
+                className={`tab-btn ${activeBins.includes('heavy') ? 'active' : ''}`}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                onClick={() => {
+                  setActiveBins(prev => prev.includes('heavy') ? prev.filter(b => b !== 'heavy') : [...prev, 'heavy'])
+                }}
+              >
+                Heavy Cloud
+              </button>
+            </div>
             <div className="sample-list">
-              {samples.map(s => (
+              {samples.filter(s => activeBins.includes(s.bin)).map(s => (
                 <div 
                   key={s.id} 
                   className={`sample-item ${selectedSampleId === s.id ? 'selected' : ''}`}
@@ -380,18 +478,25 @@ function App() {
             </div>
           </div>
 
-          <button className="btn" onClick={runModel} disabled={loading}>
-            {loading ? (
-              <>
-                <div className="loading-spinner" />
-                <span>Processing...</span>
-              </>
-            ) : (
-              <>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button className="btn" style={{ flex: 1 }} onClick={runModel} disabled={loading}>
+              {loading ? (
+                <>
+                  <div className="loading-spinner" />
+                  <span>Processing...</span>
+                </>
+              ) : (
                 <span>▶ Run Reconstruction</span>
-              </>
-            )}
-          </button>
+              )}
+            </button>
+            <button 
+              className="btn" 
+              style={{ backgroundColor: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
+              onClick={resetWorkspace}
+            >
+              Reset
+            </button>
+          </div>
         </div>
       </div>
 
@@ -447,10 +552,18 @@ function App() {
                     </div>
 
                     <div className="card">
-                      <h3 className="card-title">Cloud-Free Reconstruction</h3>
+                      <h3 className="card-title">Sobel Edge Map</h3>
                       <div className="image-panel">
-                        <div className="panel-label">GENERATED (cGAN)</div>
-                        <img src={`${API_URL}${results.clean_url}`} alt="Cloud-free output" />
+                        <div className="panel-label">BOUNDARY ALIGNMENT</div>
+                        <img src={`${API_URL}${results.edge_url}`} alt="Sobel Edge Map" />
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <h3 className="card-title">Absolute Difference</h3>
+                      <div className="image-panel">
+                        <div className="panel-label">RECONSTRUCTION DELTA</div>
+                        <img src={`${API_URL}${results.diff_url}`} alt="Difference Map" />
                       </div>
                     </div>
 
@@ -461,6 +574,34 @@ function App() {
                         <img src={`${API_URL}${results.uncertainty_url}`} alt="Uncertainty Map" />
                       </div>
                     </div>
+
+                    <div className="card">
+                      <h3 className="card-title">Cloud-Free Reconstruction</h3>
+                      <div className="image-panel">
+                        <div className="panel-label">GENERATED (cGAN)</div>
+                        <img src={`${API_URL}${results.clean_url}`} alt="Cloud-free output" />
+                      </div>
+                    </div>
+
+                    {results.ground_truth_url && (
+                      <div className="card">
+                        <h3 className="card-title">Ground Truth (Clean)</h3>
+                        <div className="image-panel">
+                          <div className="panel-label">GROUND TRUTH</div>
+                          <img src={`${API_URL}${results.ground_truth_url}`} alt="Ground Truth Clean" />
+                        </div>
+                      </div>
+                    )}
+
+                    {results.ground_truth_mask_url && (
+                      <div className="card">
+                        <h3 className="card-title">Ground Truth Mask</h3>
+                        <div className="image-panel">
+                          <div className="panel-label">TRUE MASK</div>
+                          <img src={`${API_URL}${results.ground_truth_mask_url}`} alt="Ground Truth Mask" />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="card">
@@ -599,10 +740,18 @@ function App() {
                       </div>
 
                       <div className="card">
-                        <h3 className="card-title">Cloud-Free Reconstruction</h3>
+                        <h3 className="card-title">Sobel Edge Map</h3>
                         <div className="image-panel">
-                          <div className="panel-label">GENERATED (cGAN)</div>
-                          <img src={`${API_URL}${sceneResults.clean_url}`} alt="Cloud-free output" />
+                          <div className="panel-label">BOUNDARY ALIGNMENT</div>
+                          <img src={`${API_URL}${sceneResults.edge_url}`} alt="Sobel Edge Map" />
+                        </div>
+                      </div>
+
+                      <div className="card">
+                        <h3 className="card-title">Absolute Difference</h3>
+                        <div className="image-panel">
+                          <div className="panel-label">RECONSTRUCTION DELTA</div>
+                          <img src={`${API_URL}${sceneResults.diff_url}`} alt="Difference Map" />
                         </div>
                       </div>
 
@@ -611,6 +760,14 @@ function App() {
                         <div className="image-panel">
                           <div className="panel-label">MC DROPOUT VARIANCE</div>
                           <img src={`${API_URL}${sceneResults.uncertainty_url}`} alt="Uncertainty Map" />
+                        </div>
+                      </div>
+
+                      <div className="card">
+                        <h3 className="card-title">Cloud-Free Reconstruction</h3>
+                        <div className="image-panel">
+                          <div className="panel-label">GENERATED (cGAN)</div>
+                          <img src={`${API_URL}${sceneResults.clean_url}`} alt="Cloud-free output" />
                         </div>
                       </div>
                     </div>
@@ -627,33 +784,10 @@ function App() {
                   )}
 
                   <div className="card" style={{ marginTop: '1rem' }}>
-                    <h3 className="card-title">AOI Statistics</h3>
-                    <div className="metrics-row">
-                      <div className="metric-card">
-                        <div className="metric-val" style={{ color: 'var(--warning-color)' }}>
-                          {sceneResults.cloud_coverage.toFixed(2)}%
-                        </div>
-                        <div className="metric-name">Cloud Coverage</div>
-                      </div>
-                      {sceneResults.ndvi_before && (
-                        <>
-                          <div className="metric-card">
-                            <div className="metric-val" style={{ color: 'var(--success-color)' }}>
-                              {sceneResults.ndvi_before.ndvi_mean.toFixed(4)}
-                            </div>
-                            <div className="metric-name">NDVI Mean</div>
-                          </div>
-                          <div className="metric-card">
-                            <div className="metric-val" style={{ color: 'var(--accent-color)' }}>
-                              {sceneResults.ndvi_before.ndvi_std.toFixed(4)}
-                            </div>
-                            <div className="metric-name">NDVI Std</div>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <h3 className="card-title">AOI Statistics & Indices</h3>
+                    {renderMetrics(sceneResults)}
                     {sceneResults.note && (
-                      <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sceneResults.note}</p>
+                      <p style={{ marginTop: '1.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sceneResults.note}</p>
                     )}
                   </div>
                 </>
