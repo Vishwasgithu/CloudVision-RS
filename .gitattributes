@@ -1,1 +1,5 @@
 "*.ipynb linguist-vendored=true" 
+outputs/checkpoints/segmentation/best_iou0.7935_ep39.pt filter=lfs diff=lfs merge=lfs -text
+outputs/checkpoints/segmentation/v1_brightness_aug_model_state.pt filter=lfs diff=lfs merge=lfs -text
+outputs/checkpoints/gan/best_generator.pt filter=lfs diff=lfs merge=lfs -text
+outputs/checkpoints/gan_baseline/best_generator_baseline.pt filter=lfs diff=lfs merge=lfs -text
