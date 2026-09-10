@@ -165,14 +165,14 @@ def compute_vari_rmse(pred, target, mask):
 
 
 # ── Config ──────────────────────────────────────────────────
-BASE_CKPT = "outputs/checkpoints/gan_liss4_finetune/liss4_ep08_psnr18.63.pt"
+BASE_CKPT = "outputs/checkpoints/gan_liss4_finetune/g_only_ep34_psnr23.59.pt"
 CKPT_DIR = "outputs/checkpoints/gan_liss4_g_only"
 RES_DIR = "outputs/results/gan_liss4_g_only"
 cfg = {
     "in_channels": 5,
     "features_g": 64,
     "learning_rate_g": 0.00002,
-    "max_epochs": 35,
+    "max_epochs": 50,
     "batch_size": 2,
     "patience": 10,
     "save_every": 2,
@@ -180,7 +180,7 @@ cfg = {
     "lambda_vari": 0.5,
     "lambda_spectral": 1.0,
     "lambda_edge": 5.0,
-    "patches_dir": "data/processed/patches_liss4",
+    'patches_dir': "data/processed/patches_liss4_v4",
 }
 
 

@@ -33,7 +33,7 @@ function Gauge({ value, label, max = 1, suffix = "", colorClass = "var(--accent-
 
 function App() {
   const [samples, setSamples] = useState([]);
-  const [selectedSampleId, setSelectedSampleId] = useState('');
+  const [selectedSample, setSelectedSample] = useState(null);
   const [file, setFile] = useState(null);
   const [threshold, setThreshold] = useState(0.5);
   const [mcSamples, setMcSamples] = useState(5);
@@ -50,7 +50,11 @@ function App() {
   const [rectWarning, setRectWarning] = useState('');
   const [sceneResults, setSceneResults] = useState(null);
   const [sceneActiveTab, setSceneActiveTab] = useState('grid');
-  const [activeBins, setActiveBins] = useState(['light', 'medium', 'heavy']);
+  const [rice1Open, setRice1Open] = useState(false);
+  const [rice2Open, setRice2Open] = useState(false);
+  const [rice2LightOpen, setRice2LightOpen] = useState(false);
+  const [rice2MediumOpen, setRice2MediumOpen] = useState(false);
+  const [rice2HeavyOpen, setRice2HeavyOpen] = useState(false);
 
   const fileInputRef = useRef(null);
   const sceneFileInputRef = useRef(null);
@@ -64,7 +68,7 @@ function App() {
       .then(res => res.json())
       .then(data => {
         setSamples(data);
-        if (data.length > 0) setSelectedSampleId(data[0].id);
+        if (data.length > 0) setSelectedSample(data[0]);
       })
       .catch(err => console.error('Error fetching samples:', err));
   }, []);
@@ -79,7 +83,7 @@ function App() {
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
-      setSelectedSampleId('');
+      setSelectedSample(null);
     }
   };
 
@@ -87,14 +91,14 @@ function App() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setFile(e.dataTransfer.files[0]);
-      setSelectedSampleId('');
+      setSelectedSample(null);
     }
   };
 
   const handleDragOver = (e) => e.preventDefault();
 
-  const selectSample = (id) => {
-    setSelectedSampleId(id);
+  const selectSample = (sample) => {
+    setSelectedSample(sample);
     setFile(null);
   };
 
@@ -105,8 +109,10 @@ function App() {
     formData.append('threshold', threshold);
     formData.append('mc_samples', mcSamples);
     if (file) formData.append('file', file);
-    else if (selectedSampleId) formData.append('sample_id', selectedSampleId);
-    else {
+    else if (selectedSample) {
+      formData.append('sample_id', selectedSample.id);
+      formData.append('dataset', selectedSample.dataset || 'RICE2');
+    } else {
       alert('Please select a sample image or upload a file.');
       setLoading(false);
       return;
@@ -263,7 +269,7 @@ function App() {
 
   const resetWorkspace = () => {
     setResults(null);
-    setSelectedSampleId(samples.length > 0 ? samples[0].id : '');
+    setSelectedSample(samples.length > 0 ? samples[0] : null);
     setFile(null);
     setSceneFile(null);
     setSceneData(null);
@@ -379,49 +385,131 @@ function App() {
         </div>
 
         <div className="sidebar-content">
-          <div>
-            <h3 className="card-title">Test Samples</h3>
-            <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-              <button 
-                className={`tab-btn ${activeBins.includes('light') ? 'active' : ''}`}
-                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                onClick={() => {
-                  setActiveBins(prev => prev.includes('light') ? prev.filter(b => b !== 'light') : [...prev, 'light'])
-                }}
-              >
-                Light Cloud
-              </button>
-              <button 
-                className={`tab-btn ${activeBins.includes('medium') ? 'active' : ''}`}
-                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                onClick={() => {
-                  setActiveBins(prev => prev.includes('medium') ? prev.filter(b => b !== 'medium') : [...prev, 'medium'])
-                }}
-              >
-                Medium Cloud
-              </button>
-              <button 
-                className={`tab-btn ${activeBins.includes('heavy') ? 'active' : ''}`}
-                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                onClick={() => {
-                  setActiveBins(prev => prev.includes('heavy') ? prev.filter(b => b !== 'heavy') : [...prev, 'heavy'])
-                }}
-              >
-                Heavy Cloud
-              </button>
-            </div>
-            <div className="sample-list">
-              {samples.filter(s => activeBins.includes(s.bin)).map(s => (
-                <div 
-                  key={s.id} 
-                  className={`sample-item ${selectedSampleId === s.id ? 'selected' : ''}`}
-                  onClick={() => selectSample(s.id)}
-                >
-                  <img src={`${API_URL}${s.url}`} alt={s.name} />
-                  <span>{s.name}</span>
+          <div style={{ marginBottom: '0.75rem' }}>
+            <h3 className="card-title" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setRice1Open(!rice1Open)}>
+              AGRICULTURAL RICE SAMPLES
+            </h3>
+          </div>
+
+          <div style={{ marginBottom: '0.5rem' }}>
+            <h4 
+              className="card-title" 
+              style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              onClick={() => setRice1Open(!rice1Open)}
+            >
+              <span>RICE1 — THIN CLOUD</span>
+              <span style={{ fontSize: '0.75rem' }}>{rice1Open ? '▲' : '▼'}</span>
+            </h4>
+            {rice1Open && (
+              <div className="sample-list">
+                {samples.filter(s => s.dataset === 'RICE1').slice(0, 10).map(s => (
+                  <div 
+                    key={s.id} 
+                    className={`sample-item ${selectedSample?.id === s.id ? 'selected' : ''}`}
+                    onClick={() => selectSample(s)}
+                  >
+                    <img src={`${API_URL}${s.url}`} alt={s.name} />
+                    <span>{s.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '0.5rem' }}>
+            <h4 
+              className="card-title" 
+              style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              onClick={() => setRice2Open(!rice2Open)}
+            >
+              <span>RICE2 — UNSEEN TEST SET</span>
+              <span style={{ fontSize: '0.75rem' }}>{rice2Open ? '▲' : '▼'}</span>
+            </h4>
+            {rice2Open && (
+              <>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <h5 
+                    style={{ cursor: 'pointer', userSelect: 'none', margin: '0.5rem 0 0.25rem 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}
+                    onClick={() => setRice2LightOpen(!rice2LightOpen)}
+                  >
+                    Light Cloud ({'<30%'}) {rice2LightOpen ? '▲' : '▼'}
+                  </h5>
+                  {rice2LightOpen && (
+                    <div className="sample-list">
+                      {samples.filter(s => s.dataset === 'RICE2' && s.bin === 'light').map(s => (
+                        <div 
+                          key={s.id} 
+                          className={`sample-item ${selectedSample?.id === s.id ? 'selected' : ''}`}
+                          onClick={() => selectSample(s)}
+                        >
+                          <img src={`${API_URL}${s.url}`} alt={s.name} />
+                          <span>{s.name}</span>
+                          {s.cloud_coverage_pct !== null && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {s.cloud_coverage_pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <h5 
+                    style={{ cursor: 'pointer', userSelect: 'none', margin: '0.5rem 0 0.25rem 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}
+                    onClick={() => setRice2MediumOpen(!rice2MediumOpen)}
+                  >
+                    Medium Cloud (30–60%) {rice2MediumOpen ? '▲' : '▼'}
+                  </h5>
+                  {rice2MediumOpen && (
+                    <div className="sample-list">
+                      {samples.filter(s => s.dataset === 'RICE2' && s.bin === 'medium').map(s => (
+                        <div 
+                          key={s.id} 
+                          className={`sample-item ${selectedSample?.id === s.id ? 'selected' : ''}`}
+                          onClick={() => selectSample(s)}
+                        >
+                          <img src={`${API_URL}${s.url}`} alt={s.name} />
+                          <span>{s.name}</span>
+                          {s.cloud_coverage_pct !== null && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {s.cloud_coverage_pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <h5 
+                    style={{ cursor: 'pointer', userSelect: 'none', margin: '0.5rem 0 0.25rem 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}
+                    onClick={() => setRice2HeavyOpen(!rice2HeavyOpen)}
+                  >
+                    Heavy Cloud ({'>60%'}) {rice2HeavyOpen ? '▲' : '▼'}
+                  </h5>
+                  {rice2HeavyOpen && (
+                    <div className="sample-list">
+                      {samples.filter(s => s.dataset === 'RICE2' && s.bin === 'heavy').map(s => (
+                        <div 
+                          key={s.id} 
+                          className={`sample-item ${selectedSample?.id === s.id ? 'selected' : ''}`}
+                          onClick={() => selectSample(s)}
+                        >
+                          <img src={`${API_URL}${s.url}`} alt={s.name} />
+                          <span>{s.name}</span>
+                          {s.cloud_coverage_pct !== null && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {s.cloud_coverage_pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           <div>

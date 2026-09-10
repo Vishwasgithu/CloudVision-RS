@@ -278,7 +278,7 @@ def train(config: dict, is_colab: bool = False):
 
 
 if __name__ == '__main__':
-    with open(str(PROJECT_ROOT / 'configs' / 'seg_config.yaml')) as f:
+    with open(str(PROJECT_ROOT / 'configs' / 'seg_config.yaml'), encoding='utf-8') as f:
         config = yaml.safe_load(f)['segmentation']
 
     # Detect if running on Colab

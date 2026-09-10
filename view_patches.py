@@ -16,7 +16,7 @@ import random
 import cv2
 import numpy as np
 
-PATCHES_DIR = r"D:\CloudRemoval_Project\data\processed\patches_liss4_realcloud\train"
+PATCHES_DIR = r"D:\CloudRemoval_Project\data\processed\patches_liss4_v4\train"
 N_SAMPLES = 6
 OUT_PATH = r"D:\CloudRemoval_Project\patches_preview.png"
 

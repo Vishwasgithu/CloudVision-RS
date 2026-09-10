@@ -1,157 +1,191 @@
-"""
-Run: conda activate cloudremoval
-python prepare_liss4_finetune_v2.py
-
-Replaces the flat-gray synthetic clouds with REAL cloud pixels cut from the
-JUL scene (confirmed cloudy) and Poisson-blended (cv2.seamlessClone) onto
-JUN's clean tiles -- no flat color, no hard seam, real cloud texture/brightness.
-"""
-
-import os, json, random, zipfile
-import numpy as np
+import json
+import os
+import random
+import zipfile
 import cv2
+import numpy as np
 import rasterio
-from rasterio.windows import from_bounds
+from rasterio.windows import Window
 
+# --- PATH CONFIGURATION ---
 JUN_ZIP = r"C:\Users\vishw\Downloads\R2F05JUN2026078508009300049SSANSTUC00GTDD.zip"
 JUL_ZIP = r"C:\Users\vishw\Downloads\R2F04JUL2026078914009400050SSANSTUC00GTDA.zip"
-OUT_DIR = r"D:\CloudRemoval_Project\data\processed\patches_liss4_realcloud"
-OVERLAP_BOUNDS = dict(left=493656.44, bottom=3343565.0, right=561996.44, top=3378255.0)
-PATCH = 256
-BLACK_FRACTION_SKIP = 0.05
-MIN_CLOUD_FRAC, MAX_CLOUD_FRAC = 0.05, 0.65  # donor tile must have a usable, not-total, cloud area
-SPLIT_RATIOS = dict(train=0.8, val=0.1, test=0.1)
+
+OUTPUT_DIR = r"D:\CloudRemoval_Project\data\processed\patches_liss4_realcloud"
+
+PATCH_SIZE = 256
+STRIDE = 128
 
 
-def find_internal(zip_path, band_filename):
-    with zipfile.ZipFile(zip_path) as z:
-        for name in z.namelist():
-            if name.lower().endswith(band_filename.lower()):
-                return name
-    raise FileNotFoundError(band_filename)
+def get_band_paths(zip_path):
+  """Finds BAND2, BAND3, BAND4 paths inside the zip."""
+  with zipfile.ZipFile(zip_path, "r") as z:
+    files = z.namelist()
+
+  b2 = next(f for f in files if "BAND2" in f and f.endswith(".tif"))
+  b3 = next(f for f in files if "BAND3" in f and f.endswith(".tif"))
+  b4 = next(f for f in files if "BAND4" in f and f.endswith(".tif"))
+
+  vsi = f"/vsizip/{zip_path}/"
+  return vsi + b4, vsi + b3, vsi + b2  # NIR, Red, Green
 
 
-def read_full_res_overlap(zip_path, band_filename):
-    internal = find_internal(zip_path, band_filename)
-    vsi = "/vsizip/" + zip_path.replace("\\", "/") + "/" + internal
-    with rasterio.open(vsi) as src:
-        window = from_bounds(**OVERLAP_BOUNDS, transform=src.transform)
-        window = window.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
-        return src.read(1, window=window).astype(np.float32)
+def read_tile_8bit(src_nir, src_r, src_g, y, x, patch_size):
+  """Reads a small 256x256 tile directly from disk into 8-bit FCC format."""
+  win = Window(x, y, patch_size, patch_size)
+
+  nir = src_nir.read(1, window=win)
+  r = src_r.read(1, window=win)
+  g = src_g.read(1, window=win)
+
+  # Check if window is empty or out of bounds
+  if nir.shape[0] != patch_size or nir.shape[1] != patch_size:
+    return None
+
+  fcc = np.stack([nir, r, g], axis=-1).astype(np.float32)
+
+  # Lightweight local tile normalization (0-255)
+  fcc_min, fcc_max = np.percentile(fcc, (2, 98))
+  if fcc_max - fcc_min == 0:
+    return None
+
+  fcc_8bit = np.clip((fcc - fcc_min) / (fcc_max - fcc_min) * 255.0, 0, 255)
+  return fcc_8bit.astype(np.uint8)
 
 
-def normalize_u8(arr, lo_pct=2, hi_pct=98):
-    valid = arr[arr > 0]
-    if valid.size == 0:
-        return np.zeros_like(arr, dtype=np.uint8)
-    lo, hi = np.percentile(valid, [lo_pct, hi_pct])
-    arr = np.clip((arr - lo) / max(hi - lo, 1e-6), 0, 1)
-    return (arr * 255).astype(np.uint8)
+def generate_dataset():
+  print("Initializing streaming patch generation from GeoTIFF ZIPs...")
 
+  jun_b4, jun_b3, jun_b2 = get_band_paths(JUN_ZIP)
+  jul_b4, jul_b3, jul_b2 = get_band_paths(JUL_ZIP)
 
-def heuristic_cloud_mask(rgb_u8):
-    """Clouds: bright AND spectrally flat (low variation across bands).
-    Real vegetation/soil/water have much more inter-band contrast."""
-    f = rgb_u8.astype(np.float32)
-    brightness = f.mean(axis=2)
-    band_std = f.std(axis=2)  # low when R,G,B(NIR) are all similar -- "whiteness"
-    bright_thresh = np.percentile(brightness, 75)
-    flat_thresh = np.percentile(band_std, 35)
-    mask = ((brightness > bright_thresh) & (band_std < flat_thresh)).astype(np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    return mask
+  with (
+      rasterio.open(jun_b4) as jun_nir,
+      rasterio.open(jun_b3) as jun_r,
+      rasterio.open(jun_b2) as jun_g,
+      rasterio.open(jul_b4) as jul_nir,
+      rasterio.open(jul_b3) as jul_r,
+      rasterio.open(jul_b2) as jul_g,
+  ):
 
+    h, w = jun_nir.height, jun_nir.width
+    print(f"Scene Dimensions: {h} x {w}")
 
-def tile_image(rgb_u8, black_skip=True):
-    H, W = rgb_u8.shape[:2]
-    tiles = []
-    for y in range(0, H - PATCH, PATCH):
-        for x in range(0, W - PATCH, PATCH):
-            tile = rgb_u8[y:y+PATCH, x:x+PATCH]
-            if black_skip:
-                black_frac = (tile.sum(axis=2) == 0).mean()
-                if black_frac > BLACK_FRACTION_SKIP:
-                    continue
-            tiles.append(tile)
-    return tiles
+    # Step 1: Collect cloud donor patches from July scene
+    print("Collecting cloud donor patches from July scene...")
+    cloud_donors = []
 
+    for y in range(0, h - PATCH_SIZE, STRIDE * 2):  # Subsampled for speed
+      for x in range(0, w - PATCH_SIZE, STRIDE * 2):
+        jul_patch = read_tile_8bit(
+            jul_nir, jul_r, jul_g, y, x, PATCH_SIZE
+        )
+        if jul_patch is None:
+          continue
 
-def main():
-    print("Reading JUN (clean source) and JUL (cloud donor source), full resolution...")
-    jun_rgb = np.dstack([
-        normalize_u8(read_full_res_overlap(JUN_ZIP, "BAND3.tif")),   # R <- Red
-        normalize_u8(read_full_res_overlap(JUN_ZIP, "BAND2.tif")),   # G <- Green
-        normalize_u8(read_full_res_overlap(JUN_ZIP, "BAND4.tif")),   # B <- NIR
-    ])
-    jul_rgb = np.dstack([
-        normalize_u8(read_full_res_overlap(JUL_ZIP, "BAND3.tif")),
-        normalize_u8(read_full_res_overlap(JUL_ZIP, "BAND2.tif")),
-        normalize_u8(read_full_res_overlap(JUL_ZIP, "BAND4.tif")),
-    ])
-    print(f"JUN shape: {jun_rgb.shape}, JUL shape: {jul_rgb.shape}")
+        gray = cv2.cvtColor(jul_patch, cv2.COLOR_BGR2GRAY)
+        _, bin_mask = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY)
 
-    clean_tiles = tile_image(jun_rgb)
-    print(f"Clean (JUN) tiles: {len(clean_tiles)}")
+        coverage = np.sum(bin_mask > 0) / (PATCH_SIZE * PATCH_SIZE)
+        if 0.05 <= coverage <= 0.65:
+          cloud_donors.append((jul_patch, bin_mask))
 
-    jul_tiles = tile_image(jul_rgb)
-    donor_pool = []
-    for t in jul_tiles:
-        m = heuristic_cloud_mask(t)
-        frac = m.mean()
-        if MIN_CLOUD_FRAC <= frac <= MAX_CLOUD_FRAC:
-            donor_pool.append((t, m))
-    print(f"JUL cloud-donor tiles found (usable range {MIN_CLOUD_FRAC}-{MAX_CLOUD_FRAC} coverage): {len(donor_pool)}")
+    print(f"JUL cloud-donor tiles collected: {len(cloud_donors)}")
 
-    if len(donor_pool) < 20:
-        print("WARNING: very few donor tiles found -- heuristic thresholds may need loosening. "
-              "Proceeding anyway, but check the ratio above.")
+    if not cloud_donors:
+      raise ValueError(
+          "No valid cloud donor tiles found! Adjust threshold or coverage"
+          " criteria."
+      )
 
-    patches = {}
-    patch_ids = []
-    center = (PATCH // 2, PATCH // 2)
+    # Step 2: Extract June clean patches & apply aligned cloud blending
+    print("Generating aligned synthetic patches from June scene...")
+    patches = []
+    patch_id = 0
 
-    for i, clean_tile in enumerate(clean_tiles):
-        donor_img, donor_mask = random.choice(donor_pool)
-        mask_255 = (donor_mask * 255).astype(np.uint8)
-        if mask_255.sum() == 0:
-            continue
-        try:
-            cloudy = cv2.seamlessClone(donor_img, clean_tile, mask_255, center, cv2.NORMAL_CLONE)
-        except cv2.error:
-            continue  # skip rare seamlessClone failures (e.g. mask touching border)
+    for y in range(0, h - PATCH_SIZE, STRIDE):
+      for x in range(0, w - PATCH_SIZE, STRIDE):
+        clean_patch = read_tile_8bit(
+            jun_nir, jun_r, jun_g, y, x, PATCH_SIZE
+        )
+        if clean_patch is None:
+          continue
 
-        pid = f"liss4rc_{i}"
-        patches[pid] = (cloudy, clean_tile, donor_mask)
-        patch_ids.append(pid)
+        # Pick random cloud donor
+        jul_donor, mask = random.choice(cloud_donors)
 
-    print(f"Built {len(patch_ids)} real-cloud-blended patches.")
+        # Softened Alpha Map
+        alpha = cv2.GaussianBlur(mask, (21, 21), 0).astype(np.float32) / 255.0
+        alpha = np.expand_dims(alpha, axis=-1)
 
-    random.shuffle(patch_ids)
-    n = len(patch_ids)
-    n_train = int(n * SPLIT_RATIOS["train"])
-    n_val = int(n * SPLIT_RATIOS["val"])
-    splits = {"train": patch_ids[:n_train], "val": patch_ids[n_train:n_train+n_val],
-              "test": patch_ids[n_train+n_val:]}
+        # Spatial Aligned Blending
+        cloudy_synthetic = (
+            clean_patch.astype(np.float32) * (1.0 - alpha)
+            + jul_donor.astype(np.float32) * alpha
+        ).astype(np.uint8)
 
-    for split, ids in splits.items():
-        for sub in ["cloud", "label", "mask"]:
-            os.makedirs(os.path.join(OUT_DIR, split, sub), exist_ok=True)
-        manifest = {}
-        for pid in ids:
-            cloudy, clean_tile, mask = patches[pid]
-            cv2.imwrite(os.path.join(OUT_DIR, split, "label", f"{pid}.png"),
-                        cv2.cvtColor(clean_tile, cv2.COLOR_RGB2BGR))
-            cv2.imwrite(os.path.join(OUT_DIR, split, "cloud", f"{pid}.png"),
-                        cv2.cvtColor(cloudy, cv2.COLOR_RGB2BGR))
-            cv2.imwrite(os.path.join(OUT_DIR, split, "mask", f"{pid}.png"), mask * 255)
-            manifest[pid] = {"cloud_coverage": float(mask.mean())}
-        with open(os.path.join(OUT_DIR, split, "patch_manifest.json"), "w") as f:
-            json.dump(manifest, f, indent=2)
-        print(f"{split}: {len(ids)} patches -> {os.path.join(OUT_DIR, split)}")
+        mask_binary = (alpha * 255).astype(np.uint8)
 
-    print(f"\nDone. Real-cloud fine-tuning dataset ready at: {OUT_DIR}")
+        patches.append({
+            "id": f"liss4rc_{patch_id:04d}",
+            "cloudy": cloudy_synthetic,
+            "clean": clean_patch,
+            "mask": mask_binary,
+            "coverage": float(np.mean(alpha)),
+        })
+        patch_id += 1
+
+    # Step 3: Train / Val / Test Split & Save
+    random.shuffle(patches)
+    total = len(patches)
+    n_train = int(total * 0.8)
+    n_val = int(total * 0.1)
+
+    splits = {
+        "train": patches[:n_train],
+        "val": patches[n_train : n_train + n_val],
+        "test": patches[n_train + n_val :],
+    }
+
+    for split, split_patches in splits.items():
+      manifest = {}
+      dir_cloudy = os.path.join(OUTPUT_DIR, split, "cloud")
+      dir_label = os.path.join(OUTPUT_DIR, split, "label")
+      dir_mask = os.path.join(OUTPUT_DIR, split, "mask")
+
+      os.makedirs(dir_cloudy, exist_ok=True)
+      os.makedirs(dir_label, exist_ok=True)
+      os.makedirs(dir_mask, exist_ok=True)
+
+      for item in split_patches:
+        pid = item["id"]
+
+        cv2.imwrite(
+            os.path.join(dir_cloudy, f"{pid}.png"),
+            cv2.cvtColor(item["cloudy"], cv2.COLOR_RGB2BGR),
+        )
+        cv2.imwrite(
+            os.path.join(dir_label, f"{pid}.png"),
+            cv2.cvtColor(item["clean"], cv2.COLOR_RGB2BGR),
+        )
+        cv2.imwrite(
+            os.path.join(dir_mask, f"{pid}.png"),
+            cv2.cvtColor(item["mask"], cv2.COLOR_RGB2BGR),
+        )
+
+        manifest[pid] = {"cloud_coverage": item["coverage"]}
+
+      manifest_path = os.path.join(OUTPUT_DIR, split, "patch_manifest.json")
+      with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+      print(
+          f"{split}: {len(split_patches)} patches saved to"
+          f" {os.path.join(OUTPUT_DIR, split)}"
+      )
+
+    print(f"\nDone. Dataset successfully generated at: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":
-    main()
+  generate_dataset()

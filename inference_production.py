@@ -32,16 +32,9 @@ STRIDE     = 128   # 50% overlap for seamless stitching
 print("Loading segmentation model...")
 seg_model = AttentionUNet(seg_config).to(DEVICE)
 
-# Dynamically pick the best checkpoint (highest IoU in filename)
-import glob, re
-seg_cks = sorted(glob.glob('outputs/checkpoints/segmentation/best_iou*.pt'))
-def _ck_iou(p):
-    m = re.search(r'best_iou([\d.]+)', os.path.basename(p))
-    return float(m.group(1)) if m else 0.0
-seg_best = max(seg_cks, key=_ck_iou) if seg_cks else None
-if seg_best is None:
-    raise FileNotFoundError("No segmentation checkpoint found in outputs/checkpoints/segmentation/")
-print(f"  Best segmentation checkpoint: {os.path.basename(seg_best)}")
+# Explicitly load V1 candidate checkpoint
+seg_best = 'outputs/checkpoints/segmentation/v1_brightness_aug_model_state.pt'
+print(f"  Segmentation checkpoint: {os.path.basename(seg_best)}")
 seg_ckpt  = torch.load(
     seg_best,
     map_location=DEVICE, weights_only=False)
@@ -182,6 +175,9 @@ def run_inference(image_path: str, output_path: str = None):
     coverage = cloud_mask_bin.mean() * 100
     print(f"  Cloud coverage: {coverage:.1f}%")
 
+    cv2.imwrite("outputs/results/gan/test_inference_mask.png", cloud_mask_bin * 255)
+    print("  Cloud mask saved: outputs/results/gan/test_inference_mask.png")
+
     # ── Step 3: GAN cloud removal ─────────────────────
     print("  Running cloud removal...")
     output_accum = np.zeros((H_pad, W_pad, 3), dtype=np.float32)
@@ -248,7 +244,7 @@ def run_inference(image_path: str, output_path: str = None):
     gi_sample = torch.cat([img_t, mask_t, edge_t], dim=0).unsqueeze(0).to(DEVICE)
 
     _, uncertainty_patch = get_uncertainty_map(gen_model, gi_sample)
-    print(f"  Mean uncertainty: {uncertainty_patch.mean():.4f} "
+    print(f"  Mean uncertainty: {uncertainty_patch.mean():.8f} "
           f"(lower = more confident)")
 
     # ── Step 5: Save output ───────────────────────────

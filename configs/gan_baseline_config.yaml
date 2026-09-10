@@ -1,0 +1,112 @@
+# ============================================================
+# CloudVision-RS — Baseline cGAN Configuration
+# Phase 3 Ablation Experiment
+#
+# Purpose:
+# Controlled comparison with the Physics-Informed cGAN.
+#
+# IMPORTANT:
+# Architecture and training hyperparameters remain identical.
+# ONLY physics-informed training losses are removed.
+# ============================================================
+
+gan:
+
+  # ==========================================================
+  # GENERATOR
+  # ==========================================================
+
+  # RGB cloudy image (3)
+  # + cloud mask (1)
+  # + Sobel edge map (1)
+  in_channels: 5
+
+  # RGB reconstructed output
+  out_channels: 3
+
+  # Base generator feature channels
+  features_g: 64
+
+
+  # ==========================================================
+  # DISCRIMINATOR
+  # ==========================================================
+
+  # Cloudy RGB (3)
+  # + Real/Generated RGB (3)
+  in_channels_d: 6
+
+  features_d: 64
+
+
+  # ==========================================================
+  # TRAINING
+  # ==========================================================
+
+  learning_rate_g: 0.0002
+  learning_rate_d: 0.0002
+
+  beta1: 0.5
+  beta2: 0.999
+
+  max_epochs: 100
+
+  batch_size: 2
+
+  num_workers: 0
+
+  # Keep same as Physics-Informed experiment
+  # for scientifically fair comparison
+  early_stopping_patience: 25
+
+  save_every_epochs: 5
+
+
+  # ==========================================================
+  # BASELINE LOSS
+  # ==========================================================
+
+  # Generator:
+  #
+  # Total Loss =
+  # Adversarial Loss + 100 × L1 Reconstruction Loss
+
+  lambda_l1: 100.0
+
+
+  # ==========================================================
+  # PHYSICS LOSSES — DISABLED
+  # ==========================================================
+
+  # These are kept as zero for experiment documentation.
+  # The baseline Python code does NOT calculate these losses.
+
+  lambda_vari: 0.0
+  lambda_spectral: 0.0
+  lambda_edge: 0.0
+  lambda_perceptual: 0.0
+
+
+  # ==========================================================
+  # DATA
+  # ==========================================================
+
+  patches_dir: "data/processed/patches"
+
+
+  # ==========================================================
+  # SEGMENTATION CHECKPOINT
+  # ==========================================================
+
+  # Kept for configuration consistency.
+  # Baseline reconstruction training itself uses dataset masks.
+  seg_checkpoint: "outputs/checkpoints/segmentation/best_iou0.7935_ep39.pt"
+
+
+  # ==========================================================
+  # OUTPUT PATHS
+  # ==========================================================
+
+  checkpoint_dir: "outputs/checkpoints/gan_baseline"
+
+  results_dir: "outputs/results/gan_baseline"

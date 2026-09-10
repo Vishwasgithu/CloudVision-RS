@@ -14,7 +14,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 sys.path.insert(0, "D:\\CloudRemoval_Project")
 
 from src.models.generator import Generator
-from run_gan_training import GANDataset, psnr, ssim_simple, vari_rmse
+from run_gan_training import GANDataset, compute_psnr, compute_ssim, compute_vari_rmse
 
 
 # ── Denormalization Helpers ──────────────────────────
@@ -63,11 +63,11 @@ with torch.no_grad():
 
         fake = G(gi)
 
-        p = psnr(fake, cf)
+        p = compute_psnr(fake, cf)
         if isinstance(p, torch.Tensor):
             p = p.item()
-        s = ssim_simple(fake, cf)
-        v = vari_rmse(fake, cf, mk)
+        s = compute_ssim(fake, cf)
+        v = compute_vari_rmse(fake, cf, mk)
 
         all_psnr.append(p)
         all_ssim.append(s)
